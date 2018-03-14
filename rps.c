@@ -17,63 +17,96 @@
 #include <netdb.h>
 #include <sys/select.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <ctype.h>
 
 
 // need to make this selected by the operating system
-#define PORT "9421"
+#define PORT "5939"
 
-#define ZCONF_NAME "rps_hw2"
-#define ZCONF_TYPE "_gtn._tcp"
+#define ZCONF_NAME "waclas"
+#define ZCONF_TYPE "_rps._tcp"
 #define ZCONF_DOMAIN "local"
+
+#define ROCK 0
+#define PAPER 1
+#define SCISSORS 2
 
 
 void die(const char *msg) {
+    perror("ERROR: ");
     perror(msg);
     exit(EXIT_FAILURE);
 }
 
-
-int takeUserInput(char *name, int *invalid) {
-    int current_guess;
-
-    if(strstr(name, "guess ") != NULL) {
-    	int i;
-    	char guess_string[3];
-
-    	for (i = 6; i < sizeof(name)/sizeof(name[0]); ++i) {
-    		guess_string[i-6] = name[i];
-    	}
-
-    	if ((current_guess = atoi(guess_string)) == 0) {
-            *invalid = 1;
-    		return -1;
-    	}
-
-	} else {
-        *invalid = 1;
-		return -1;
-	}
-
-    return current_guess;
+int isEmpty(const char *s) {
+  while (*s != '\0') {
+    if (!isspace(*s))
+      return 0;
+    s++;
+  }
+  return 1;
 }
 
-void runGame () {
-    int sockfd, new, maxfd, on = 1
-    int nready, i, number_to_guess, guess_count;
+int isValidAction(char *action){
+    // An item outside the set 
+    //     {rock, paper, scissors} would also be considered invalid
 
-    struct addrinfo *res0, *res, hints;
+    // lower case our input before comparing
+    for(int i = 0; action[i]; i++){
+      action[i] = tolower(action[i]);
+    }
+
+    if (strncmp(action, "rock", 4) == 0){
+        return ROCK;
+    } 
+    else if (strncmp(action, "paper", 5) == 0){
+        return PAPER;
+    }
+    else if (strncmp(action, "scissors", 8) == 0){
+        return SCISSORS;
+	}
+    
+    // else
+	return -1;
+}
+
+
+void printResults (int fd, char * winnerAction, char * result, char * loserAction, char* winner, char* loser){
+    send(fd, (const void *) winnerAction, strlen(winnerAction), 0);
+    send(fd, (const void *) result, strlen(result), 0);
+    send(fd, (const void *) loserAction, strlen(loserAction), 0);
+    send(fd, (const void *) "! ", 2, 0);
+    send(fd, (const void *) winner, strlen(winner), 0);
+    send(fd, (const void *) result, strlen(result), 0);
+    send(fd, (const void *) loser, strlen(loser), 0);
+    send(fd, (const void *) "!\n", 2, 0);
+}
+
+
+
+void runGame () {
+    int sockfd, new, maxfd, on = 1;
+    int nready, i, serverAction;
+
+    // order of this array is important due to #defines of ROCK, ...
+    char actionStrs[3][10] = {"ROCK", "PAPER", "SCISSORS"};
+
+    struct addrinfo *res0, *res, server;
     char buffer[BUFSIZ];
+    char playerName[BUFSIZ];
+
     fd_set master, readfds;
     int error;
     ssize_t nbytes;
-    (void)memset(&hints, '\0', sizeof(struct addrinfo));
+    (void)memset(&server, '\0', sizeof(struct addrinfo));
 
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    hints.ai_flags = AI_PASSIVE;
+    server.ai_family = AF_INET;
+    server.ai_socktype = SOCK_STREAM;
+    server.ai_protocol = IPPROTO_TCP;
+    server.ai_flags = AI_PASSIVE;
 
-    if (0 != (error = getaddrinfo(NULL, PORT, &hints, &res0))) {
+    if (0 != (error = getaddrinfo(NULL, PORT, &server, &res0))) {
         errx(EXIT_FAILURE, "%s", gai_strerror(error));
     }
 
@@ -122,10 +155,11 @@ void runGame () {
     int dns_sd_fd = DNSServiceRefSockFD(serviceRef);
 
     FD_ZERO(&master);
-    FD_ZERO(&readfds);
-
-    FD_SET(sockfd, &master);
     FD_SET(dns_sd_fd, &master);
+
+    FD_ZERO(&readfds);
+    FD_SET(sockfd, &master);
+    
 
     maxfd = sockfd;
 
@@ -159,63 +193,117 @@ void runGame () {
                             maxfd = new;
                         }
 
-                        number_to_guess = rand() % 100 + 1;
-                        guess_count = 0;
+                        // set our action 
+                        serverAction = rand() % 3;
                     }
                 } else {
                     (void)printf("recv() data from one of descriptors(s)\n");
 
-                    nbytes = recv(i, buffer, sizeof(buffer), 0);
-                    if (nbytes <= 0) {
-                        if (EWOULDBLOCK != errno) {
-                            die("recv()");
+                    // get the name of connecting player
+                    int invalid=1;
+                    while(invalid) {
+                        send(i, (const void *)"What is your name?\n", 19, 0);
+                        nbytes = recv(i, buffer, sizeof(buffer), 0);
+                        if (nbytes <= 0) {
+                            if (EWOULDBLOCK != errno) {
+                                die("recv()");
+                            }
+
+                            break;
                         }
 
-                        break;
+                        buffer[nbytes] = '\0';
+                        printf("%s", buffer);
+
+                        invalid = isEmpty(buffer);
+                    }
+                    printf("other player's name:\n");
+
+                    // copy over to the player's name to upper case
+                    // lower case our input before comparing
+                    int k;
+                    for(k = 0; buffer[k]; k++){
+                      playerName[k] = toupper(buffer[k]);
+                    }
+                    playerName[BUFSIZ] = '\0';
+                    if (k<BUFSIZ){
+                        playerName[k] = '\0';
+                    }
+                    printf("is %s\n", playerName);
+
+
+
+                    // get the player's guess
+                    int playerAction = -1;
+                    while(playerAction < 0) {
+                        send(i, (const void *)"Rock, paper, or scissors?\n", 26, 0);
+                        nbytes = recv(i, buffer, sizeof(buffer), 0);
+                        if (nbytes <= 0) {
+                            if (EWOULDBLOCK != errno) {
+                                die("recv()");
+                            }
+
+                            break;
+                        }
+
+                        buffer[nbytes] = '\0';
+                        printf("%s", buffer);
+
+                        playerAction = isValidAction(buffer);
                     }
 
-                    buffer[nbytes] = '\0';
-                    printf("%s", buffer);
+                    // figure out who wins
 
-                    int invalid;
-                    int current_guess = takeUserInput(buffer, &invalid);
+                    // TODO this should be a switchcase
+                    
+                    // Case: tie
+                    if (serverAction == playerAction) {
+                        printResults (i, actionStrs[serverAction], " ties ", actionStrs[playerAction], ZCONF_NAME, playerName);
+                        
+                        // send(i, (const void *) actionStrs[serverAction], strlen(actionStrs[serverAction]), 0);
+                        // send(i, (const void *) " ties ", 6, 0);
+                        // send(i, (const void *) actionStrs[playerAction], strlen(actionStrs[playerAction]), 0);
+                        // send(i, (const void *) "! ", 2, 0);
+                        // send(i, (const void *) ZCONF_NAME, strlen(ZCONF_NAME), 0);
+                        // send(i, (const void *) " ties ", 6, 0);
+                        // send(i, (const void *) playerName, strlen(playerName), 0);
+                        // send(i, (const void *) "!\n", 2, 0);
+                        
+                	} 
+                    // case rock vs paper
+                    else if (serverAction == ROCK && playerAction == PAPER) {
+                        // player wins
+                        printResults (i, actionStrs[playerAction], " covers ", actionStrs[serverAction], playerName, ZCONF_NAME);
+                    }
 
-                    if(current_guess == -1 && invalid == 1) {
-                        send(i, (const void *)"???\n", 4, 0);
-                    } else if (number_to_guess == current_guess) {
-                        ++guess_count;
-                        double high, low;
-                        high = (log((double)100)/log((double)2)) + 1;
-                        low = (log((double)100)/log((double)2)) + 1;
+                    else if (serverAction == PAPER && playerAction == ROCK) {
+                        // server wins
+                        printResults (i, actionStrs[serverAction], " covers ", actionStrs[playerAction], ZCONF_NAME, playerName);
+                    }
 
-                        if (guess_count > high) {
-                            send(i, (const void *)"CORRECT\nBETTER LUCK NEXT TIME\n", 30, 0);
-                        } else if (guess_count < low) {
-                            send(i, (const void *)"CORRECT\nGREAT GUESSING\n", 23, 0);
-                        } else {
-                            send(i, (const void *)"CORRECT\nAVERAGE\n", 16, 0);
-                        }
+                    // case rock vs scissors
 
-                        close(i);
-                        FD_CLR(i, &master);
-                	} else if (number_to_guess > current_guess) {
-                        ++guess_count;
-                        send(i, (const void *)"HIGHER\n", 7, 0);
-                		printf("HIGHER\n");
-                	} else if (number_to_guess < current_guess) {
-                        ++guess_count;
-                        send(i, (const void *)"LOWER\n", 6, 0);
-                		printf("LOWER\n");
-                	}
+                    // case paper vs scissors
+
+                    else { // error
+                        die("ERROR: outside of 'rock', 'paper', 'scissors'!\n");
+                    }
+
+                    // cleanup
+                    close(i);
+                    FD_CLR(i, &master);
 
                 }
+            
             }
+
 
         }
 
     }
     DNSServiceRefDeallocate(serviceRef);
 }
+
 
 int main(int argc, char **argv) {
     runGame();
