@@ -88,6 +88,7 @@ void printResults (int fd, char * winnerAction, char * result, char * loserActio
 void runGame () {
     int sockfd, new, maxfd, on = 1;
     int nready, i, serverAction;
+    int client[2];
 
     // order of this array is important due to #defines of ROCK, ...
     char actionStrs[3][10] = {"ROCK", "PAPER", "SCISSORS"};
@@ -154,20 +155,61 @@ void runGame () {
 
     int dns_sd_fd = DNSServiceRefSockFD(serviceRef);
 
-    FD_ZERO(&master);
-    FD_SET(dns_sd_fd, &master);
+    // start
+    maxfd = sockfd;
+    client[0] = -1;
+    client[1] = -1;
 
-    FD_ZERO(&readfds);
+    FD_ZERO(&master);
     FD_SET(sockfd, &master);
+
+
+
+    // end
+    // FD_ZERO(&master);
+    // FD_SET(dns_sd_fd, &master);
+
+    // FD_ZERO(&readfds);
+    // FD_SET(sockfd, &master);
     
 
-    maxfd = sockfd;
+    // maxfd = sockfd;
 
     while (1) {
+
         memcpy(&readfds, &master, sizeof(master));
 
         if (-1 == (nready = select(maxfd+1, &readfds, NULL, NULL, NULL))) {
             die("select()");
+        }
+
+        if(FD_ISSET(sockfd, &readfds)) {
+            if (-1 == (new = accept(sockfd, NULL, NULL))) {
+                if (EWOULDBLOCK != errno) {
+                    die("accept()");
+                }
+                break;
+            }
+            printf("Received a connection\n");
+            char *msg = "What is your name?\n";
+            nbytes = write(new, msg, strlen(msg));
+
+            if(client[0] == -1) {
+                client[0] = new; 
+            }
+            else if(client[1] == -1) {
+                client[1] = new;
+            }
+            else {
+                printf("Too many connections\n");
+                close(new);
+            }
+
+            FD_SET(new, &master);
+            if(new > maxfd)
+                maxfd = new;
+            if(--nready <= 0)
+                continue;
         }
 
         for (i=0; i<=maxfd && nready>0; i++) {
@@ -175,7 +217,7 @@ void runGame () {
                 nready--;
 
                 if (i == sockfd) {
-                    printf("Received a new connection\n");
+                    // printf("Received a new connection\n");
 
                     if (-1 == (new = accept(sockfd, NULL, NULL))) {
                         if (EWOULDBLOCK != errno) {
@@ -197,7 +239,7 @@ void runGame () {
                         serverAction = rand() % 3;
                     }
                 } else {
-                    (void)printf("recv() data from one of descriptors(s)\n");
+                    // (void)printf("recv() data from one of descriptors(s)\n");
 
                     // get the name of connecting player
                     int invalid=1;
@@ -230,8 +272,6 @@ void runGame () {
                         playerName[k] = '\0';
                     }
                     printf("is %s\n", playerName);
-
-
 
                     // get the player's guess
                     int playerAction = -1;
@@ -276,12 +316,16 @@ void runGame () {
                         printResults (i, actionStrs[playerAction], " covers ", actionStrs[serverAction], playerName, ZCONF_NAME);
                     }
 
+                    // case paper vs rock
                     else if (serverAction == PAPER && playerAction == ROCK) {
                         // server wins
                         printResults (i, actionStrs[serverAction], " covers ", actionStrs[playerAction], ZCONF_NAME, playerName);
                     }
 
                     // case rock vs scissors
+                    else if (serverAction == ROCK && playerAction == SCISSORS) {
+                        printResults(i, actionStrs[serverAction], " crushes ", actionStrs[playerAction], ZCONF_NAME, playerName);
+                    }
 
                     // case paper vs scissors
 
