@@ -202,6 +202,7 @@ void runGame () {
                     // get the name of connecting player
                     int invalid=1;
                     while(invalid) {
+                        memset(&buffer, 0, sizeof(buffer));
                         send(i, (const void *)"What is your name?\n", 19, 0);
                         nbytes = recv(i, buffer, sizeof(buffer), 0);
                         if (nbytes <= 0) {
@@ -213,7 +214,7 @@ void runGame () {
                         }
 
                         buffer[nbytes] = '\0';
-                        printf("%s", buffer);
+                        printf("string recv has %ld bytes: '%s'\n", nbytes, buffer);
 
                         invalid = isEmpty(buffer);
                     }
