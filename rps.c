@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <time.h>
 
 
 // need to make this selected by the operating system
@@ -88,7 +89,8 @@ void printResults (int fd, char * winnerAction, char * result, char * loserActio
 void runGame () {
     int sockfd, new, maxfd, on = 1;
     int nready, i, serverAction;
-    int client[2];
+    int client[50];
+    int clientSize = 50;
 
     // order of this array is important due to #defines of ROCK, ...
     char actionStrs[3][10] = {"ROCK", "PAPER", "SCISSORS"};
@@ -106,6 +108,10 @@ void runGame () {
     server.ai_socktype = SOCK_STREAM;
     server.ai_protocol = IPPROTO_TCP;
     server.ai_flags = AI_PASSIVE;
+
+    srand(time(NULL));   // seed the random value
+    int randSeed = 0;
+
 
     if (0 != (error = getaddrinfo(NULL, PORT, &server, &res0))) {
         errx(EXIT_FAILURE, "%s", gai_strerror(error));
@@ -153,12 +159,18 @@ void runGame () {
         die("DNSServiceRegister()");
     }
 
-    int dns_sd_fd = DNSServiceRefSockFD(serviceRef);
+    ///int dns_sd_fd = DNSServiceRefSockFD(serviceRef);
 
     // start
     maxfd = sockfd;
-    client[0] = -1;
-    client[1] = -1;
+
+
+    // zero out the clients with -1 for not used
+    int j;
+    for (j=0; j<clientSize; j++){
+        client[j] = -1;
+    }
+
 
     FD_ZERO(&master);
     FD_SET(sockfd, &master);
@@ -194,16 +206,20 @@ void runGame () {
             char *msg = "What is your name?\n";
             nbytes = write(new, msg, strlen(msg));
 
-            if(client[0] == -1) {
-                client[0] = new; 
+            j=0;
+            while (j<clientSize && client[j] != -1){
+                j++;
             }
-            else if(client[1] == -1) {
-                client[1] = new;
-            }
-            else {
+
+            if (j >= clientSize){
+                printf("j >= clientSize\n");
+
                 printf("Too many connections\n");
                 close(new);
             }
+
+            client[j] = new;
+            
 
             FD_SET(new, &master);
             if(new > maxfd)
@@ -235,15 +251,15 @@ void runGame () {
                             maxfd = new;
                         }
 
-                        // set our action 
-                        serverAction = rand() % 3;
+                        
+
                     }
                 } else {
                     // (void)printf("recv() data from one of descriptors(s)\n");
 
                     // get the name of connecting player
                     int invalid=1;
-                    while(invalid) {
+                    do {
                         memset(&buffer, 0, sizeof(buffer));
                         send(i, (const void *)"What is your name?\n", 19, 0);
                         nbytes = recv(i, buffer, sizeof(buffer), 0);
@@ -253,13 +269,13 @@ void runGame () {
                             }
 
                             break;
-                        }
+                        } 
 
-                        buffer[nbytes] = '\0';
-                        printf("string recv has %ld bytes: '%s'\n", nbytes, buffer);
+                        buffer[nbytes-1] = '\0';
+                        //printf("string recv has %ld bytes: '%s'\n", nbytes, buffer);
 
                         invalid = isEmpty(buffer);
-                    }
+                    } while(invalid);
                     printf("other player's name:\n");
 
                     // copy over to the player's name to upper case
@@ -274,7 +290,11 @@ void runGame () {
                     }
                     printf("is %s\n", playerName);
 
-                    // get the player's guess
+                    // set our action 
+                    serverAction = (rand() * randSeed) % 3;
+                    randSeed+= serverAction+i;
+
+                    // get the player's action
                     int playerAction = -1;
                     while(playerAction < 0) {
                         send(i, (const void *)"Rock, paper, or scissors?\n", 26, 0);
@@ -328,7 +348,20 @@ void runGame () {
                         printResults(i, actionStrs[serverAction], " crushes ", actionStrs[playerAction], ZCONF_NAME, playerName);
                     }
 
+                    // case scissors vs rock
+                    else if (serverAction == SCISSORS && playerAction == ROCK) {
+                        printResults(i, actionStrs[playerAction], " crushes ", actionStrs[serverAction], playerName, ZCONF_NAME);
+                    }
+
                     // case paper vs scissors
+                    else if (serverAction == PAPER && playerAction == SCISSORS) {
+                        printResults(i, actionStrs[playerAction], " cuts ", actionStrs[serverAction], playerName, ZCONF_NAME);
+                    }
+
+                    // case scissors vs paper
+                    else if (serverAction == SCISSORS && playerAction == PAPER) {
+                        printResults(i, actionStrs[serverAction], " cuts ", actionStrs[playerAction], ZCONF_NAME, playerName);
+                    }
 
                     else { // error
                         die("ERROR: outside of 'rock', 'paper', 'scissors'!\n");
