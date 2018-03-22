@@ -212,7 +212,7 @@ void runGame () {
             }
 
             if (j >= clientSize){
-                printf("j >= clientSize\n");
+                //printf("j >= clientSize\n");
 
                 printf("Too many connections\n");
                 close(new);
@@ -261,7 +261,7 @@ void runGame () {
                     int invalid=1;
                     do {
                         memset(&buffer, 0, sizeof(buffer));
-                        send(i, (const void *)"What is your name?\n", 19, 0);
+                        //send(i, (const void *)"What is your name?\n", 19, 0);
                         nbytes = recv(i, buffer, sizeof(buffer), 0);
                         if (nbytes <= 0) {
                             if (EWOULDBLOCK != errno) {
